@@ -13,7 +13,8 @@ def extract_patches_from_img(img: np.ndarray, patch_dims: (int,int)):
     yy = 0
 
 
-    patch_coords_to_extract = []
+    patch_locs = []
+    patches = []
 
     while yy < img.shape[0] - patch_dims[0]:
         integration_row = img[yy:yy + patch_dims[0], 0:img.shape[1]]
@@ -23,8 +24,6 @@ def extract_patches_from_img(img: np.ndarray, patch_dims: (int,int)):
         # plt.show()
 
         print("Loading row from " + str(yy))
-        patch_locs = []
-        patches = []
         xx = 0
         while xx < (img.shape[1] - patch_dims[1]):
             patch = integration_row[:, xx:xx + patch_dims[0]]
@@ -45,11 +44,14 @@ def save_patches(patch_locs, patches, out_dir: Path, orig_file_name: str):
     if len(patch_locs) != patches:
         AssertionError("trying to save patches with varying number of locations")
 
-    out_dir.mkdir(exist_ok=True, parents=True)
+
 
     for p in zip(patch_locs,patches):
         #<patch-x>_<patch_y>.fits
-        patch_path = out_dir / (str(p[0][1]) +"_" + str(p[0][0])+"-"+ orig_file_name+".fits")
+        patch_dir = out_dir / (str(p[0][1]) +"_" + str(p[0][0]))
+        patch_dir.mkdir(exist_ok=True, parents=True)
+
+        patch_path = patch_dir / (str(p[0][1]) +"_" + str(p[0][0])+"-"+ orig_file_name+".fits")
         print("Saving a patch to: " + str(patch_path))
 
         patch_fits = astropy.io.fits.PrimaryHDU(data=p[1])
@@ -91,13 +93,11 @@ def main():
 
                 sub_patch_locs, sub_patches = extract_patches_from_img(sub_img, patch_dims)
                 subs_patches_path = out_path / target.stem / channel_integration.with_suffix(
-                    "").stem / "int"
-
-                integration_patches_path = out_path / target.stem / channel_integration.with_suffix(
                     "").stem / "sub"
+
                 save_patches(sub_patch_locs,
                              sub_patches,
-                             integration_patches_path,
+                             subs_patches_path,
                              sub.with_suffix("").stem)
 
 
