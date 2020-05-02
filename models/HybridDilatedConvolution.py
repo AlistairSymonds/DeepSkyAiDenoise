@@ -1,7 +1,6 @@
 import torch.nn as nn
 import torch
 import torch.nn.init as init
-from utils import initialize_weights
 
 #This is the code the HDC block from the replicated custom model
 
@@ -41,7 +40,3 @@ class HDConv(nn.Module):
 
         output = x + conv1_result
         return output
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            initialize_weights(m)

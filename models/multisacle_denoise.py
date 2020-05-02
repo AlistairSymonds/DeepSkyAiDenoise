@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from models.HybridDilatedConvolution import HDConv
-from utils import initialize_weights
 
 #this model was replicating the work of group researchers from Chongqing University
 
@@ -53,7 +52,3 @@ class multiscale_denoise(nn.Module):
         residual = self.final_bnorm(out)
 
         return x - residual
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            initialize_weights(m)
