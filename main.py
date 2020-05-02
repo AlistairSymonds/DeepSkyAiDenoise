@@ -19,35 +19,29 @@ import torch.optim
 import timeit
 import matplotlib.pyplot as plt
 import sklearn
+from astropy.io import fits
+import DeepSkyLinearIntegrationDataset
+import models.multisacle_denoise, models.models
+from astropy.io import fits
+import kornia.losses
 
 
 
 
-def eval_net(net, val_loader, device='cuda'):
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for data in val_loader:
-            images, labels = data
-            images, labels = images.to(device), labels.to(device)
-            outputs = net(images)
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-    print('Accuracy of the network on validaton set: %d %%' % (
-        100 * correct / total))
-    return (correct/total)
-
-
-def train_net(net, trainloader, valloader, optimizer, criterion, weights_dir, epochs=5):
+def train_net(net, trainloader, valloader, optimizer, criterion, results_dir, epochs=5):
     logger = logging.getLogger(__name__)
+    weights_dir = results_dir / ('models')
+    image_dir = results_dir / ('sample_imgs')
     weights_dir.mkdir(exist_ok=True, parents=True)
+    image_dir.mkdir(exist_ok=True, parents=True)
+    print(image_dir)
+    print(weights_dir)
     val_accuracy = 0.
     # val_accuracy is the validation accuracy of each epoch. You can save your model base on the best validation accuracy.
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     net.to(device)
+
     for epoch in range(epochs):
 
         # Training
@@ -55,77 +49,151 @@ def train_net(net, trainloader, valloader, optimizer, criterion, weights_dir, ep
         epoch_star_time = timeit.default_timer()
 
 
-        correct = 0
-        total = 0
 
         for step, (train_x, train_y) in enumerate(trainloader):
+            #if you want to view images, do it before tensors are sent to GPU
+            #f, ax = plt.subplots(1, 2)
+            #ax[0].imshow(train_x[0,0])
+            #ax[0].set_title("X[0]")
+            #ax[1].imshow(train_y[0,0])
+            #ax[1].set_title("Y[0]")
+            #plt.show()
+
             train_x, train_y = train_x.to(device, non_blocking=True), train_y.to(device, non_blocking=True)
             N = train_x.size(0)
 
 
 
             optimizer.zero_grad()
-            logits = net(train_x)
+            denoised = net(train_x)
 
-            loss = criterion(logits, train_y)
+            loss = criterion(denoised, train_y)
             loss.backward()
             optimizer.step()
 
-            _, predicted = torch.max(logits.data, 1)
-            total += train_y.size(0)
-            correct += (predicted == train_y).sum().item()
 
-            if step % 250 == 0 or step == len(trainloader) - 1:
+
+            if step % 16 == 0 or step == len(trainloader) - 1:
                 time_per_step = (timeit.default_timer()-epoch_star_time)/(step+1)
-                logger.warning("Train acc: " + str(correct / total) + " Train loss: " + str(loss.item()) + " | Time per step: " + str(time_per_step) +
+                logger.warning("Train loss: " + str(loss.item()) + " | Time per step: " + str(time_per_step) +
                                " Estimated time remaining: "+ str(time_per_step*(len(trainloader)-step)))
 
 
 
 
+
         # VALIDATION
-        val_accuracy = eval_net(net, valloader)
+        with torch.no_grad():
+            for data in valloader:
+                val_x, val_y = data
+                val_x, val_y = val_x.to(device), val_x.to(device)
+                denoised = net(val_x)
+
+                val_loss =criterion(denoised, val_y)
+                logger.warning("Val loss: " + str(val_loss))
 
 
+        x_ssim = criterion(val_x,val_y).item()
+        denoised_ssim = criterion(denoised,val_y).item()
+        y_ssim = criterion(val_y,val_y).item()
 
+        displayable_input = val_x.cpu().detach().numpy()
+        displayable_result = denoised.cpu().detach().numpy()
+        displayable_y = val_y.cpu().detach().numpy()
+
+
+        f, ax = plt.subplots(1, 3)
+        ax[0].imshow(displayable_input[0, 0])
+        ax[1].imshow(displayable_result[0, 0])
+        ax[2].imshow(displayable_y[0, 0])
+        plt.suptitle("SSIM X,Y " + str(x_ssim) + "\nSSIM Denoised,Y: "+ str(denoised_ssim)+ "\nSSIM Y,Y: " + str(y_ssim))
+        plt.savefig(str(image_dir / (str(epoch)+'.png')))
+        plt.close(f)
+
+        patch_path = str(image_dir / (str(epoch)+'_x.fits'))
+        print("Saving a patch to: " + str(patch_path))
+
+        patch_fits = fits.PrimaryHDU(data=displayable_input)
+        patch_fits.writeto(patch_path, overwrite=True)
+
+        patch_path = str(image_dir / (str(epoch)+'_denoised.fits'))
+        print("Saving a patch to: " + str(patch_path))
+
+        patch_fits = fits.PrimaryHDU(data=displayable_result)
+        patch_fits.writeto(patch_path, overwrite=True)
+
+
+        patch_path = str(image_dir / (str(epoch)+'_y.fits'))
+        print("Saving a patch to: " + str(patch_path))
+
+        patch_fits = fits.PrimaryHDU(data=displayable_y)
+        patch_fits.writeto(patch_path, overwrite=True)
 
 
         torch.save(net, str(weights_dir/"{:03d}.pth").format(epoch+1))
 
     return val_accuracy
 
+def load_patch(dir: Path):
+    integration_path = dir / 'int'
+    sub_path = dir / 'sub'
+
+    if not integration_path.exists() or not sub_path.exists():
+        AssertionError("missing required structure to load patches :(")
+
+    x= []
+    for sub in sub_path.glob("*.fit*"):
+        sd = fits.open((sub))[0].data
+        x.append(sd)
+
+    y = []
+    for integration in integration_path.glob("*.fit*"):
+        integrationd = fits.open((integration))[0].data
+        y.append(integrationd)
+
+    return (x,y)
+
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_dir", default="data")
-    ap.add_argument("--nimrod_key")
-    ap.add_argument("--network", default="SqueezeNet")
-
+    ap.add_argument("--network", default="Multiscale")
+    ap.add_argument("--loss_func", default="MSE")
+    ap.add_argument("--batch_size", default=16, type=int)
     args = ap.parse_args()
 
+    data_path = Path(args.data_dir)
 
     #baseline_config = config.NetworkConfig()
     baseline_network = None
 
 
 
-    if args.network == "ResNet50":
-        baseline_network = torchvision.models.resnet50()
-    elif args.network =="ResNet152":
-        baseline_network = torchvision.models.resnet152()
-    elif args.network == 'SqueezeNet':
-        baseline_network = torchvision.models.squeezenet1_1()
-    elif args.network == 'DenseNet121':
-        baseline_network = torchvision.models.densenet121()
-    elif args.network == 'DenseNet201':
-        baseline_network = torchvision.models.densenet201()
-    elif args.network == 'DeepLabv3+':
-        baseline_network = torchvision.models.segmentation.deeplabv3_resnet50()
+    if args.network == "Multiscale":
+        baseline_network = models.multisacle_denoise.multiscale_denoise()
+    elif args.network == "DnCNN":
+        baseline_network = models.models.DnCNN()
+    elif args.network == "FastARCNN":
+        baseline_network = models.models.FastARCNN()
     else:
         print("Unsupported network!")
         SystemExit(1)
 
-    results_dir = Path("results") / args.network
+    loss_func = None
+    if args.loss_func == "MSE":
+        loss_func = torch.nn.MSELoss()
+    elif args.loss_func == "SSE":
+        loss_func = "Potato"
+    elif args.loss_func == "SSIM":
+        loss_func = kornia.losses.SSIM(window_size=11,reduction='mean')
+    elif args.loss_func == "PSNR":
+        loss_func = kornia.losses.PSNRLoss(max_val=1)
+    else:
+        print("Unsupported loss function!")
+        SystemExit(1)
+
+    results_dir = Path("results") / str(args.network + "_"+args.loss_func)
     results_dir.mkdir(exist_ok=True, parents=True)
 
     logger = logging.getLogger(__name__)
@@ -136,48 +204,33 @@ def main():
     logger.addHandler(c_handler)
     logger.addHandler(f_handler)
 
-    batch_size = 16
+
     patches_dir = Path(args.data_dir) / "training" / "patches"
 
     patch_transforms = transforms.Compose([
+        transforms.ToPILImage(),
         transforms.RandomVerticalFlip(),
         transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(hue=0.2, saturation=0.2),
+        transforms.RandomRotation(5),
+        torchvision.transforms.RandomCrop(224),
         transforms.ToTensor()
 
     ])
 
-    patches_dataset = ImageFolder(patches_dir, transform=patch_transforms)
+    dslids = DeepSkyLinearIntegrationDataset.DeepSkyLinearIntegrationDataset(data_path, transform=patch_transforms)
 
-    train_split, val_split = torch.utils.data.random_split(patches_dataset, [len(patches_dataset)-5000, 5000])
+    some_patches = dslids[0]
+    train_size = int(0.9 * len(dslids))
+    val_size = len(dslids) - train_size
 
-    print(len(train_split))
-    print(len(val_split))
+    train_split, val_split = torch.utils.data.random_split(dslids, [train_size, val_size])
 
-    samples_per_class = {}
-    for c in patches_dataset.classes:
-        samples_per_class[c] = 0
-    for i in train_split.indices:
-        sample = patches_dataset.samples[i]
-        class_of_sample = patches_dataset.classes[sample[1]]
-        samples_per_class[class_of_sample] += 1
-
-    smallest_class = (None, float("inf"))
-    for k, v in samples_per_class.items():
-        print(k, v)
-        if v < smallest_class[1]:
-            smallest_class = (k,v)
-    logger.warning(samples_per_class)
-    logger.warning("Undersampling to match: " + str(smallest_class))
-    print(smallest_class[1]-3)
-    #smallest_class = (None, 5000)
-    patch_sampler = WeightedRandomSampler(weights= [smallest_class[1],smallest_class[1]],replacement=True, num_samples=int(smallest_class[1]*2)-5)
-    train_loader = DataLoader(train_split, sampler=patch_sampler, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_split, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_split)
 
-    opt = torch.optim.SGD(baseline_network.parameters(), lr=0.01, momentum=0.9)
-    train_net(baseline_network, train_loader, val_loader, criterion=nn.CrossEntropyLoss(),
-              weights_dir=results_dir / "models",optimizer=opt, epochs=20)
+    opt = torch.optim.Adam(baseline_network.parameters(), lr=0.01)
+    train_net(baseline_network, train_loader, val_loader, optimizer=opt, criterion=loss_func,
+              results_dir=results_dir, epochs=20)
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()

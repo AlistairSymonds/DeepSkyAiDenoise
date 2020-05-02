@@ -40,7 +40,7 @@ def extract_patches_from_img(img: np.ndarray, patch_dims: (int,int)):
     return patch_locs, patches
 
 
-def save_patches(patch_locs, patches, out_dir: Path, orig_file_name: str):
+def save_patches(patch_locs, patches, out_dir: Path, orig_file_name: str, patch_type: str):
     if len(patch_locs) != patches:
         AssertionError("trying to save patches with varying number of locations")
 
@@ -48,7 +48,7 @@ def save_patches(patch_locs, patches, out_dir: Path, orig_file_name: str):
 
     for p in zip(patch_locs,patches):
         #<patch-x>_<patch_y>.fits
-        patch_dir = out_dir / (str(p[0][1]) +"_" + str(p[0][0]))
+        patch_dir = out_dir / (str(p[0][1]) +"_" + str(p[0][0])) / patch_type
         patch_dir.mkdir(exist_ok=True, parents=True)
 
         patch_path = patch_dir / (str(p[0][1]) +"_" + str(p[0][0])+"-"+ orig_file_name+".fits")
@@ -80,11 +80,12 @@ def main():
             int_patch_locs, int_patches = extract_patches_from_img(integration, patch_dims)
             print("Got "+str(len(int_patches)) +" patches from integration, extracting valid matching patches from subs")
 
-            integration_patches_path = out_path / target.stem / channel_integration.with_suffix("").stem / "int"
+            integration_patches_path = out_path / target.stem / channel_integration.with_suffix("").stem
             save_patches(int_patch_locs,
                          int_patches,
                          integration_patches_path,
-                         channel_integration.with_suffix("").stem)
+                         channel_integration.with_suffix("").stem,
+                         patch_type="int")
 
 
             subs_folder = channel_integration.with_suffix("")
@@ -93,12 +94,13 @@ def main():
 
                 sub_patch_locs, sub_patches = extract_patches_from_img(sub_img, patch_dims)
                 subs_patches_path = out_path / target.stem / channel_integration.with_suffix(
-                    "").stem / "sub"
+                    "").stem
 
                 save_patches(sub_patch_locs,
                              sub_patches,
                              subs_patches_path,
-                             sub.with_suffix("").stem)
+                             sub.with_suffix("").stem,
+                            patch_type="sub")
 
 
 if __name__ == '__main__':

@@ -3,6 +3,8 @@ from pathlib import Path
 from astropy.io import fits
 import numpy as np
 import torch.tensor
+import random
+import matplotlib.pyplot as plt
 
 class DeepSkyLinearIntegrationDataset(Dataset):
 
@@ -36,8 +38,12 @@ class DeepSkyLinearIntegrationDataset(Dataset):
         return len(self.sub_pair_paths)
 
     def __load_fits(self, fits_path: Path):
-        print("Loading patch: " + str(fits_path))
+        #print("Loading patch: " + str(fits_path))
         data = fits.open(str(fits_path))[0].data
+        #make lowest value at zero
+        data = data - np.min(np.min(data))
+        #scale so highest value is one
+        data = data * (1/ np.max(np.max(data)))
         data = np.expand_dims(data, axis=2)
         return data.astype('<f4')
 
@@ -51,9 +57,17 @@ class DeepSkyLinearIntegrationDataset(Dataset):
 
 
         if self.transform:
+            seed = np.random.randint(2147483647)
+            random.seed(seed)
             x = self.transform(x)
+            random.seed(seed)
             y = self.transform(y)
 
-
+        #f, ax = plt.subplots(1, 2)
+        #ax[0].imshow(x[0])
+        #ax[0].set_title("X[0]")
+        #ax[1].imshow(y[0])
+        #ax[1].set_title("Y[0]")
+        #plt.show()
 
         return (x,y)
