@@ -19,16 +19,16 @@ import torch.optim
 import timeit
 import matplotlib.pyplot as plt
 import sklearn
-from astropy.io import fits
 import DeepSkyLinearIntegrationDataset
 import models.multisacle_denoise, models.models
 from astropy.io import fits
 import kornia.losses
+import astropy.visualization
 
 
 
 
-def train_net(net, trainloader, valloader, optimizer, criterion, results_dir, epochs=5):
+def train_net(net, trainloader, valloader, optimizer, criterion, results_dir, viz_stretch, epochs=5):
     logger = logging.getLogger(__name__)
     weights_dir = results_dir / ('models')
     image_dir = results_dir / ('sample_imgs')
@@ -52,10 +52,11 @@ def train_net(net, trainloader, valloader, optimizer, criterion, results_dir, ep
 
         for step, (train_x, train_y) in enumerate(trainloader):
             #if you want to view images, do it before tensors are sent to GPU
+
             #f, ax = plt.subplots(1, 2)
-            #ax[0].imshow(train_x[0,0])
+            #ax[0].imshow(viz_stretch(train_x[0,0].numpy()))
             #ax[0].set_title("X[0]")
-            #ax[1].imshow(train_y[0,0])
+            #ax[1].imshow(viz_stretch(train_y[0,0].numpy()))
             #ax[1].set_title("Y[0]")
             #plt.show()
 
@@ -89,7 +90,7 @@ def train_net(net, trainloader, valloader, optimizer, criterion, results_dir, ep
                 val_x, val_y = val_x.to(device), val_x.to(device)
                 denoised = net(val_x)
 
-                val_loss =criterion(denoised, val_y)
+                val_loss = criterion(denoised, val_y)
                 logger.warning("Val loss: " + str(val_loss))
 
 
@@ -103,9 +104,9 @@ def train_net(net, trainloader, valloader, optimizer, criterion, results_dir, ep
 
 
         f, ax = plt.subplots(1, 3)
-        ax[0].imshow(displayable_input[0, 0])
-        ax[1].imshow(displayable_result[0, 0])
-        ax[2].imshow(displayable_y[0, 0])
+        ax[0].imshow(viz_stretch(displayable_input[0, 0]))
+        ax[1].imshow(viz_stretch(displayable_result[0, 0]))
+        ax[2].imshow(viz_stretch(displayable_y[0, 0]))
         plt.suptitle("SSIM X,Y " + str(x_ssim) + "\nSSIM Denoised,Y: "+ str(denoised_ssim)+ "\nSSIM Y,Y: " + str(y_ssim))
         plt.savefig(str(image_dir / (str(epoch)+'.png')))
         plt.close(f)
@@ -228,8 +229,10 @@ def main():
     train_loader = DataLoader(train_split, batch_size=args.batch_size, shuffle=True)
     val_loader = DataLoader(val_split)
 
+    stretch = astropy.visualization.SqrtStretch()
+
     opt = torch.optim.Adam(baseline_network.parameters(), lr=0.01)
-    train_net(baseline_network, train_loader, val_loader, optimizer=opt, criterion=loss_func,
+    train_net(baseline_network, train_loader, val_loader, viz_stretch=stretch, optimizer=opt, criterion=loss_func,
               results_dir=results_dir, epochs=20)
 
 if __name__ == '__main__':
